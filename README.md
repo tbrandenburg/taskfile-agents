@@ -16,7 +16,7 @@ This is an **execution adapter library**, not a durable workflow engine. Each ag
 
 - [Task](https://taskfile.dev/installation/), **v3.53.0+ for remote includes** (local includes also work with older v3).
 - At least one of the CLI executables: `claude`, `codex`, `copilot`, `opencode`, `pi`.
-- A POSIX-compatible shell environment; recommended: macOS, Linux, or Windows/WSL. `PROMPT_FILE` uses `cat`.
+- A POSIX-compatible shell environment; recommended: macOS, Linux, or Windows/WSL. `PROMPT_FILE` and `INSTRUCTIONS_FILE` use `cat`.
 
 ## Quickstart: local repository
 
@@ -68,12 +68,14 @@ task --taskfile 'https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.y
 |---|---|---|
 | `PROMPT` | Text sent to the agent | empty (must provide it or `PROMPT_FILE`) |
 | `PROMPT_FILE` | Read prompt content from a local file | empty |
-| `MODEL` | CLI's `--model` override | omitted (CLI chooses its configured model) |
+| `MODEL` | Raw CLI-specific selector, passed as one quoted `--model` value | omitted (CLI chooses its configured model) |
+| `FORMAT` | Exactly `text` or `jsonl`; selects native CLI output | `text` |
+| `INSTRUCTIONS_FILE` | Local trusted UTF-8 Markdown prepended to the user prompt | omitted |
 | `CODEX_SANDBOX` | `read-only` or `workspace-write` | `read-only` |
 | `COPILOT_ALLOW_TOOL` | One Copilot `--allow-tool` value (may be a comma-separated set supported by Copilot) | omitted |
 | `AGENT` | Agent name, for `agents:run` only | required |
 
-Exactly one of `PROMPT` and `PROMPT_FILE` must be set. The code **never inserts the prompt into shell source**. The prompt, model, and Copilot tool allowlist are passed as individual quoted arguments so `;`, `$()`, quotes, multiline text, and unicode are not executed as shell syntax. The runner removes the prompt environment variables before launching the agent, but prompts still appear in the agent process's command-line arguments and should **not contain secrets**.
+Exactly one of `PROMPT` and `PROMPT_FILE` must be set. The code **never inserts the prompt into shell source**. The prompt, model, and Copilot tool allowlist are passed as individual quoted arguments so `;`, `$()`, quotes, multiline text, and unicode are not executed as shell syntax. The runner unsets its `ATF_PROMPT`, `ATF_PROMPT_FILE`, and `ATF_INSTRUCTIONS_FILE` environment carriers before launching the agent, but the combined instructions and prompt still appear in the agent process's command-line arguments and should **not contain secrets**.
 
 ### Long prompts in files
 
@@ -87,6 +89,39 @@ Relative prompt file paths resolve against the **caller project's working direct
 ```bash
 task agents:codex PROMPT_FILE=prompts/report.md > report.md
 ```
+
+### Output format
+
+`FORMAT=text` leaves the CLI's native text/default output unchanged. `FORMAT=jsonl` selects its native JSON Lines event output using these flags:
+
+| CLI | Flags added for `FORMAT=jsonl` |
+|---|---|
+| Claude | `--output-format stream-json --verbose` |
+| Codex | `--json` |
+| Copilot | `--output-format json` |
+| OpenCode | `--format json` |
+| Pi | `--mode json` |
+
+```bash
+task agents:opencode PROMPT='Explain this project' FORMAT=jsonl > events.jsonl
+```
+
+Stdout contains the native events; diagnostics remain on stderr. Event schemas vary by CLI and version: the adapter does not normalize them or enforce a shared response schema. Values other than `text` and `jsonl` are rejected before launching a provider.
+
+### Trusted instructions from a file
+
+Use `INSTRUCTIONS_FILE` to reuse trusted UTF-8 Markdown alongside a required task prompt:
+
+```bash
+printf '# Review guidance\nReport findings with file paths.\n' > review-instructions.md
+task agents:claude INSTRUCTIONS_FILE=review-instructions.md PROMPT='Review the current diff'
+```
+
+The runner validates the required `PROMPT` or `PROMPT_FILE` before reading instructions; instructions alone cannot replace the task prompt. A supplied instructions path must be a readable regular file. Missing, nonregular, unreadable, empty, and newline-only instruction files are rejected before provider launch. Relative instruction paths, like prompt paths, resolve against the **caller project's working directory**.
+
+Composition is exactly `instructions + "\n\n" + prompt`, passed as one user-prompt argument. Shell `cat` command substitution strips trailing newline characters from `INSTRUCTIONS_FILE` and `PROMPT_FILE`; inline `PROMPT` trailing newlines are preserved. Other content is passed literally, without Markdown parsing or UTF-8 validation.
+
+This is **user-prompt text**, not a native system-prompt override, skill loader, or security boundary. Only use instruction files you trust. Native CLI configuration and permission behavior remain unchanged.
 
 ### Editing with Codex
 
@@ -149,14 +184,14 @@ Replace `X.Y.Z` with the next version number. The initial `v0.1.0` release was p
 
 ## Tests
 
-No real agent is invoked by the tests: temporary executable shims record their received argument arrays instead.
+No real agent is invoked by the tests: temporary executable shims record argument arrays, working directories, and the presence of prompt-related environment carriers. Contracts cover native text/JSONL flags, raw model forwarding, instruction composition, invalid inputs, and literal metacharacter transport; they do not validate live provider event schemas.
 
 ```bash
 python -m pip install -r requirements-dev.txt
 python -m unittest discover -s tests -v
 ```
 
-If Go-task is installed, tests also run an **end-to-end local include** with the mocked CLIs. CI installs Task via `go-task/setup-task@v2`.
+If Go-task is installed, tests also exercise the local include in `examples/Taskfile.yml` with the CLI shims, checking caller-relative files and option forwarding for the five providers. CI installs Task via `go-task/setup-task@v2`.
 
 ## Limitations
 

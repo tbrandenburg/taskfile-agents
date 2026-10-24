@@ -1,71 +1,12 @@
 """Mock-only contracts for the five provider CLIs; never invokes real models."""
-import json
-import os
 from pathlib import Path
 import shutil
-import subprocess
-import tempfile
 import unittest
 
-import yaml
-
-ROOT = Path(__file__).resolve().parents[1]
-TASKFILE = ROOT / "Taskfile.yml"
-DEFINITION = yaml.safe_load(TASKFILE.read_text(encoding="utf-8"))
-SCRIPT = DEFINITION["tasks"]["run"]["cmds"][0]
-AGENTS = ("claude", "codex", "copilot", "opencode", "pi")
+from agents_fixture import AGENTS, DEFINITION, SCRIPT, AgentFixture
 
 
-class AgentTaskfileTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
-        self.workspace = self.root / "project"
-        self.workspace.mkdir()
-        self.bin = self.root / "bin"
-        self.bin.mkdir()
-        self.capture = self.root / "args.json"
-        mock = (
-            "#!/usr/bin/env python3\n"
-            "import json, os, sys\n"
-            "with open(os.environ['ATF_TEST_CAPTURE'], 'w', encoding='utf-8') as f:\n"
-            "  json.dump({'command': os.path.basename(sys.argv[0]), 'args': sys.argv[1:], "
-            "'cwd': os.getcwd(), 'prompt_in_env': 'ATF_PROMPT' in os.environ}, f)\n"
-            "print('mock-agent-success')\n"
-        )
-        for agent in AGENTS:
-            path = self.bin / agent
-            path.write_text(mock, encoding="utf-8")
-            path.chmod(0o755)
-
-    def environment(self, agent, prompt="Inspect this repo", **extras):
-        env = os.environ.copy()
-        env.update({
-            "PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", ""),
-            "ATF_TEST_CAPTURE": str(self.capture),
-            "ATF_AGENT": agent,
-            "ATF_PROMPT": prompt,
-            "ATF_PROMPT_FILE": "",
-            "ATF_MODEL": "",
-            "ATF_CODEX_SANDBOX": "read-only",
-            "ATF_COPILOT_ALLOW_TOOL": "",
-        })
-        env.update(extras)
-        return env
-
-    def run_script(self, agent, prompt="Inspect this repo", **extras):
-        self.capture.unlink(missing_ok=True)
-        result = subprocess.run(
-            ["sh", "-c", SCRIPT],
-            cwd=self.workspace,
-            env=self.environment(agent, prompt, **extras),
-            capture_output=True,
-            text=True,
-        )
-        recorded = json.loads(self.capture.read_text(encoding="utf-8")) if self.capture.exists() else None
-        return result, recorded
-
+class AgentTaskfileTests(AgentFixture):
     def test_schema_is_self_contained_and_public_tasks_delegate(self):
         self.assertEqual(DEFINITION["version"], "3")
         self.assertNotIn("includes", DEFINITION)
@@ -85,21 +26,33 @@ class AgentTaskfileTests(unittest.TestCase):
             "pi": ["-p", "Inspect this repo"],
         }
         for agent, arguments in expected.items():
-            with self.subTest(agent=agent):
-                result, captured = self.run_script(agent)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(captured["command"], agent)
-                self.assertEqual(captured["args"], arguments)
-                self.assertEqual(Path(captured["cwd"]), self.workspace)
-                self.assertFalse(captured["prompt_in_env"])
+            for format in (None, "text"):
+                with self.subTest(agent=agent, format=format):
+                    env = self.environment(agent)
+                    if format is None:
+                        env.pop("ATF_FORMAT")
+                    result, captured = self.run_command(["sh", "-c", SCRIPT], env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(captured["command"], agent)
+                    self.assertEqual(captured["args"], arguments)
+                    self.assertEqual(Path(captured["cwd"]), self.workspace)
+                    self.assertEqual(captured["carriers"], [])
 
     def test_model_is_optional_and_forwarded_to_every_cli(self):
-        for agent in AGENTS:
+        model = 'raw model/雪; $(touch MODEL_INJECTION) `touch MODEL_INJECTION` "$HOME"\nnext'
+        expected = {
+            "claude": ["-p", "--model", model, "Inspect this repo"],
+            "codex": ["exec", "--sandbox", "read-only", "--model", model, "Inspect this repo"],
+            "copilot": ["-p", "Inspect this repo", "-s", "--no-ask-user", "--model", model],
+            "opencode": ["run", "--model", model, "Inspect this repo"],
+            "pi": ["-p", "--model", model, "Inspect this repo"],
+        }
+        for agent, arguments in expected.items():
             with self.subTest(agent=agent):
-                result, captured = self.run_script(agent, ATF_MODEL="test/provider-model")
+                result, captured = self.run_script(agent, ATF_MODEL=model)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                idx = captured["args"].index("--model")
-                self.assertEqual(captured["args"][idx + 1], "test/provider-model")
+                self.assertEqual(captured["args"], arguments)
+                self.assertFalse((self.workspace / "MODEL_INJECTION").exists())
 
     def test_prompt_metacharacters_are_literal_arguments(self):
         marker = self.root / "INJECTION"
@@ -158,20 +111,8 @@ class AgentTaskfileTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("task"), "Go-task not installed locally; runs in CI")
     def test_go_task_local_include_dispatches_from_caller_directory(self):
-        result = subprocess.run(
-            ["task", "--taskfile", str(ROOT / "examples" / "Taskfile.yml"),
-             "agents:claude", "PROMPT=Hello from caller", "MODEL=sonnet"],
-            cwd=self.workspace,
-            env={
-                **os.environ,
-                "PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", ""),
-                "ATF_TEST_CAPTURE": str(self.capture),
-            },
-            capture_output=True,
-            text=True,
-        )
+        result, captured = self.run_task("claude", "PROMPT=Hello from caller", "MODEL=sonnet")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        captured = json.loads(self.capture.read_text(encoding="utf-8"))
         self.assertEqual(captured["command"], "claude")
         self.assertEqual(captured["args"], ["-p", "--model", "sonnet", "Hello from caller"])
         self.assertEqual(Path(captured["cwd"]), self.workspace)

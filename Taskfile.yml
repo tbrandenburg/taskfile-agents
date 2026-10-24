@@ -19,6 +19,8 @@ tasks:
       ATF_PROMPT: '{{.PROMPT | default ""}}'
       ATF_PROMPT_FILE: '{{.PROMPT_FILE | default ""}}'
       ATF_MODEL: '{{.MODEL | default ""}}'
+      ATF_FORMAT: '{{.FORMAT | default "text"}}'
+      ATF_INSTRUCTIONS_FILE: '{{.INSTRUCTIONS_FILE | default ""}}'
       ATF_CODEX_SANDBOX: '{{.CODEX_SANDBOX | default "read-only"}}'
       ATF_COPILOT_ALLOW_TOOL: '{{.COPILOT_ALLOW_TOOL | default ""}}'
     cmds:
@@ -29,6 +31,12 @@ tasks:
         case "$ATF_AGENT" in
           claude|codex|copilot|opencode|pi) ;;
           *) die "AGENT must be one of: claude, codex, copilot, opencode, pi" ;;
+        esac
+
+        format=${ATF_FORMAT:-text}
+        case "$format" in
+          text|jsonl) ;;
+          *) die 'FORMAT must be text or jsonl' ;;
         esac
 
         if [ -n "$ATF_PROMPT" ] && [ -n "$ATF_PROMPT_FILE" ]; then
@@ -42,6 +50,16 @@ tasks:
         fi
         [ -n "$prompt" ] || die 'Set a non-empty PROMPT or PROMPT_FILE'
 
+        if [ -n "${ATF_INSTRUCTIONS_FILE:-}" ]; then
+          [ -f "$ATF_INSTRUCTIONS_FILE" ] || die "Instructions file does not exist or is not regular: $ATF_INSTRUCTIONS_FILE"
+          [ -r "$ATF_INSTRUCTIONS_FILE" ] || die 'Unable to read INSTRUCTIONS_FILE'
+          instructions=$(cat < "$ATF_INSTRUCTIONS_FILE") || die 'Unable to read INSTRUCTIONS_FILE'
+          [ -n "$instructions" ] || die 'Set a non-empty INSTRUCTIONS_FILE'
+          prompt="$instructions
+
+        $prompt"
+        fi
+
         command -v "$ATF_AGENT" >/dev/null 2>&1 || {
           printf 'taskfile-agents: missing executable: %s\n' "$ATF_AGENT" >&2
           exit 127
@@ -50,7 +68,7 @@ tasks:
         # Drop the prompt from the inherited environment before starting the
         # provider. The CLI still receives it as an argv value (visible to local
         # process-inspection tools), so do not put secrets in task prompts.
-        unset ATF_PROMPT ATF_PROMPT_FILE
+        unset ATF_PROMPT ATF_PROMPT_FILE ATF_INSTRUCTIONS_FILE
 
         # No shell-eval, implicit permission bypass, or model defaults.
         # Prompt and model are always passed as single, quoted arguments.
@@ -58,6 +76,7 @@ tasks:
           claude)
             set -- -p
             if [ -n "$ATF_MODEL" ]; then set -- "$@" --model "$ATF_MODEL"; fi
+            if [ "$format" = jsonl ]; then set -- "$@" --output-format stream-json --verbose; fi
             exec claude "$@" "$prompt"
             ;;
           codex)
@@ -67,6 +86,7 @@ tasks:
             esac
             set -- exec --sandbox "$ATF_CODEX_SANDBOX"
             if [ -n "$ATF_MODEL" ]; then set -- "$@" --model "$ATF_MODEL"; fi
+            if [ "$format" = jsonl ]; then set -- "$@" --json; fi
             exec codex "$@" "$prompt"
             ;;
           copilot)
@@ -77,16 +97,19 @@ tasks:
             if [ -n "$ATF_COPILOT_ALLOW_TOOL" ]; then
               set -- "$@" --allow-tool "$ATF_COPILOT_ALLOW_TOOL"
             fi
+            if [ "$format" = jsonl ]; then set -- "$@" --output-format json; fi
             exec copilot "$@"
             ;;
           opencode)
             set -- run
             if [ -n "$ATF_MODEL" ]; then set -- "$@" --model "$ATF_MODEL"; fi
+            if [ "$format" = jsonl ]; then set -- "$@" --format json; fi
             exec opencode "$@" "$prompt"
             ;;
           pi)
             set -- -p
             if [ -n "$ATF_MODEL" ]; then set -- "$@" --model "$ATF_MODEL"; fi
+            if [ "$format" = jsonl ]; then set -- "$@" --mode json; fi
             exec pi "$@" "$prompt"
             ;;
         esac
