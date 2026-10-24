@@ -1,0 +1,22 @@
+version: '3'
+
+# For production, pin a tagged revision instead of the current branch:
+# includes:
+#   agents: https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=v0.1.0
+#
+# A local include makes this example runnable directly from a clone.
+includes:
+  agents:
+    taskfile: ../Taskfile.yml
+
+tasks:
+  review:
+    desc: Read-only review using AGENT=codex by default
+    vars:
+      REVIEW_AGENT: '{{.AGENT | default "codex"}}'
+    cmds:
+      - task: agents:run
+        vars:
+          AGENT: '{{.REVIEW_AGENT}}'
+          PROMPT: 'Review the current git diff for correctness and security. Do not modify files.'
+          CODEX_SANDBOX: read-only
