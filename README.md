@@ -40,7 +40,7 @@ To reuse the published release, add the following to the consuming project's `Ta
 ```yaml
 version: '3'
 includes:
-  agents: https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=v0.1.0
+  agents: https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=v0.1.1
 ```
 
 Then run from the consuming project:
@@ -58,7 +58,7 @@ The model examples are illustrative: use model IDs actually available in your re
 You may also invoke the single remote Taskfile directly:
 
 ```bash
-task --taskfile 'https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=v0.1.0' \
+task --taskfile 'https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=v0.1.1' \
   codex PROMPT='Review this repository'
 ```
 
@@ -152,7 +152,7 @@ Good for a workflow whose agent is selected at runtime:
 ```yaml
 version: '3'
 includes:
-  agents: https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=v0.1.0
+  agents: https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=v0.1.1
 tasks:
   review:
     cmds:
@@ -166,7 +166,7 @@ tasks:
 
 This repository already exists at [tbrandenburg/taskfile-agents](https://github.com/tbrandenburg/taskfile-agents).
 
-The first published release is **[v0.1.0](https://github.com/tbrandenburg/taskfile-agents/releases/tag/v0.1.0)**. Reference `?ref=v0.1.0` (or a reviewed commit SHA) in consumer includes instead of a moving `main` branch. Review imported YAML before trusting it.
+The latest published release is **[v0.1.1](https://github.com/tbrandenburg/taskfile-agents/releases/tag/v0.1.1)**. Reference `?ref=v0.1.1` (or a reviewed commit SHA) in consumer includes instead of a moving `main` branch. Review imported YAML before trusting it.
 
 ### Publishing future releases
 
