@@ -35,12 +35,12 @@ The five named tasks call a single `run` dispatcher. All are headless, return th
 
 ## Reuse from another repository
 
-After this PR is merged into `main`, add the following to the consuming project's `Taskfile.yml`. For production use, pin a reviewed release tag or commit SHA instead of `main`:
+To reuse the published release, add the following to the consuming project's `Taskfile.yml`. Pin the reviewed release tag or a commit SHA so future updates cannot silently change the commands you run:
 
 ```yaml
 version: '3'
 includes:
-  agents: https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=main
+  agents: https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=v0.1.0
 ```
 
 Then run from the consuming project:
@@ -58,7 +58,7 @@ The model examples are illustrative: use model IDs actually available in your re
 You may also invoke the single remote Taskfile directly:
 
 ```bash
-task --taskfile 'https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=main' \
+task --taskfile 'https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=v0.1.0' \
   codex PROMPT='Review this repository'
 ```
 
@@ -117,7 +117,7 @@ Good for a workflow whose agent is selected at runtime:
 ```yaml
 version: '3'
 includes:
-  agents: https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=main
+  agents: https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=v0.1.0
 tasks:
   review:
     cmds:
@@ -131,7 +131,21 @@ tasks:
 
 This repository already exists at [tbrandenburg/taskfile-agents](https://github.com/tbrandenburg/taskfile-agents).
 
-After merging the initial PR and verifying CI, create a release tag (for example `v0.1.0`) and replace `?ref=main` with `?ref=v0.1.0` in consumer includes. Review the remote Taskfile before trusting it.
+The first published release is **[v0.1.0](https://github.com/tbrandenburg/taskfile-agents/releases/tag/v0.1.0)**. Reference `?ref=v0.1.0` (or a reviewed commit SHA) in consumer includes instead of a moving `main` branch. Review imported YAML before trusting it.
+
+### Publishing future releases
+
+Once changes have passed the `Validate Taskfiles` GitHub Actions workflow on `main`, add matching notes at `docs/releases/vX.Y.Z.md` and publish a reviewed version:
+
+```bash
+git switch main
+git pull --ff-only
+git tag -a vX.Y.Z -m 'vX.Y.Z'
+git push origin vX.Y.Z
+gh release create vX.Y.Z --verify-tag --title vX.Y.Z --notes-file docs/releases/vX.Y.Z.md
+```
+
+Replace `X.Y.Z` with the next version number. The initial `v0.1.0` release was published by a one-time workflow, which is no longer needed.
 
 ## Tests
 
