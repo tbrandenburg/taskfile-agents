@@ -2,7 +2,7 @@ version: '3'
 
 # For production, pin a tagged revision instead of the current branch:
 # includes:
-#   agents: https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=v0.1.0
+#   agents: https://github.com/tbrandenburg/taskfile-agents.git//Taskfile.yml?ref=v0.1.1
 #
 # A local include makes this example runnable directly from a clone.
 includes:
