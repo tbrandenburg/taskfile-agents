@@ -1,0 +1,127 @@
+version: '3'
+
+# This file is intentionally self-contained so it can be included remotely.
+# go-task v3.53.1+ is needed for Git/HTTP remote Taskfile includes.
+# CLI inputs are routed through env variables, NOT interpolated into shell source.
+
+tasks:
+  default:
+    desc: List available agent commands
+    cmds:
+      - task --list
+
+  run:
+    desc: Run AGENT=claude|codex|copilot|opencode|pi with PROMPT or PROMPT_FILE
+    silent: true
+    dir: '{{.USER_WORKING_DIR}}'
+    env:
+      ATF_AGENT: '{{.AGENT | default ""}}'
+      ATF_PROMPT: '{{.PROMPT | default ""}}'
+      ATF_PROMPT_FILE: '{{.PROMPT_FILE | default ""}}'
+      ATF_MODEL: '{{.MODEL | default ""}}'
+      ATF_CODEX_SANDBOX: '{{.CODEX_SANDBOX | default "read-only"}}'
+      ATF_COPILOT_ALLOW_TOOL: '{{.COPILOT_ALLOW_TOOL | default ""}}'
+    cmds:
+      - |
+        set -eu
+        die() { printf 'taskfile-agents: %s\n' "$1" >&2; exit 2; }
+
+        case "$ATF_AGENT" in
+          claude|codex|copilot|opencode|pi) ;;
+          *) die "AGENT must be one of: claude, codex, copilot, opencode, pi" ;;
+        esac
+
+        if [ -n "$ATF_PROMPT" ] && [ -n "$ATF_PROMPT_FILE" ]; then
+          die 'Provide PROMPT or PROMPT_FILE, not both'
+        fi
+        if [ -n "$ATF_PROMPT_FILE" ]; then
+          [ -f "$ATF_PROMPT_FILE" ] || die "Prompt file does not exist: $ATF_PROMPT_FILE"
+          prompt=$(cat "$ATF_PROMPT_FILE") || die 'Unable to read PROMPT_FILE'
+        else
+          prompt=$ATF_PROMPT
+        fi
+        [ -n "$prompt" ] || die 'Set a non-empty PROMPT or PROMPT_FILE'
+
+        command -v "$ATF_AGENT" >/dev/null 2>&1 || {
+          printf 'taskfile-agents: missing executable: %s\n' "$ATF_AGENT" >&2
+          exit 127
+        }
+
+        # Drop the prompt from the inherited environment before starting the
+        # provider. The CLI still receives it as an argv value (visible to local
+        # process-inspection tools), so do not put secrets in task prompts.
+        unset ATF_PROMPT ATF_PROMPT_FILE
+
+        # No shell-eval, implicit permission bypass, or model defaults.
+        # Prompt and model are always passed as single, quoted arguments.
+        case "$ATF_AGENT" in
+          claude)
+            set -- -p
+            if [ -n "$ATF_MODEL" ]; then set -- "$@" --model "$ATF_MODEL"; fi
+            exec claude "$@" "$prompt"
+            ;;
+          codex)
+            case "$ATF_CODEX_SANDBOX" in
+              read-only|workspace-write) ;;
+              *) die 'CODEX_SANDBOX must be read-only or workspace-write' ;;
+            esac
+            set -- exec --sandbox "$ATF_CODEX_SANDBOX"
+            if [ -n "$ATF_MODEL" ]; then set -- "$@" --model "$ATF_MODEL"; fi
+            exec codex "$@" "$prompt"
+            ;;
+          copilot)
+            # --no-ask-user prevents hanging on conversational follow-ups;
+            # it does NOT grant tool permissions. Grant only what you trust.
+            set -- -p "$prompt" -s --no-ask-user
+            if [ -n "$ATF_MODEL" ]; then set -- "$@" --model "$ATF_MODEL"; fi
+            if [ -n "$ATF_COPILOT_ALLOW_TOOL" ]; then
+              set -- "$@" --allow-tool "$ATF_COPILOT_ALLOW_TOOL"
+            fi
+            exec copilot "$@"
+            ;;
+          opencode)
+            set -- run
+            if [ -n "$ATF_MODEL" ]; then set -- "$@" --model "$ATF_MODEL"; fi
+            exec opencode "$@" "$prompt"
+            ;;
+          pi)
+            set -- -p
+            if [ -n "$ATF_MODEL" ]; then set -- "$@" --model "$ATF_MODEL"; fi
+            exec pi "$@" "$prompt"
+            ;;
+        esac
+
+  claude:
+    desc: Run Claude Code headlessly
+    cmds:
+      - task: run
+        vars:
+          AGENT: claude
+
+  codex:
+    desc: Run Codex headlessly (default sandbox read-only)
+    cmds:
+      - task: run
+        vars:
+          AGENT: codex
+
+  copilot:
+    desc: Run GitHub Copilot CLI headlessly
+    cmds:
+      - task: run
+        vars:
+          AGENT: copilot
+
+  opencode:
+    desc: Run OpenCode headlessly
+    cmds:
+      - task: run
+        vars:
+          AGENT: opencode
+
+  pi:
+    desc: Run Pi headlessly
+    cmds:
+      - task: run
+        vars:
+          AGENT: pi
